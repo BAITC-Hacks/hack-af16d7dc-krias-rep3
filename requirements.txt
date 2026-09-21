@@ -1,0 +1,3 @@
+# Полная установка с BGE-m3; для офлайн-тестов достаточно requirements-core.txt.
+-r requirements-core.txt
+sentence-transformers==3.4.1

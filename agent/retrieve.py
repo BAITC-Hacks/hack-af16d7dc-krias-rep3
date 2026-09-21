@@ -112,11 +112,28 @@ class SentenceTransformerEmbedder:
 
 
 def default_embedder(corpus: list[str]) -> Embedder:
-    """BGE-m3, если доступна; иначе лексический эмбеддер."""
+    """BGE-m3, если доступна; иначе лексический эмбеддер.
+
+    Переменная EMBED_BACKEND управляет выбором явно:
+    - bge-m3  — BGE-m3 (по умолчанию, если модель доступна)
+    - lexical — лексический поиск без зависимостей и весов
+    На демо без весов или GPU лексический режим позволяет запуститься
+    без зависания на загрузке модели.
+    """
+    backend = os.getenv("EMBED_BACKEND", "").strip().lower()
+    if backend == "lexical":
+        log.info("EMBED_BACKEND=lexical: используется лексический поиск")
+        return LexicalEmbedder(corpus)
+    if backend == "bge-m3":
+        log.info("EMBED_BACKEND=bge-m3: загрузка BGE-m3")
+    else:
+        log.info("EMBED_BACKEND не задан или не распознан (%r), пробуем BGE-m3", backend)
     try:
         return SentenceTransformerEmbedder()
     except Exception as exc:  # нет пакета, нет модели, нет сети
-        log.warning("BGE-m3 недоступна (%s), используется лексический поиск", exc)
+        log.warning(
+            "BGE-m3 недоступна (%s), переключаемся на лексический поиск", exc
+        )
         return LexicalEmbedder(corpus)
 
 

@@ -6,11 +6,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import date
+from functools import lru_cache
 from time import perf_counter
 from typing import Callable
+
+from dotenv import load_dotenv
 
 from agent.classify import classify
 from agent.draft import build_draft, draft_ru, translate_kk
@@ -22,6 +26,8 @@ from agent.types import (
     Retriever,
     Tracer,
 )
+
+log = logging.getLogger(__name__)
 
 Booker = Callable[..., Appointment]
 
@@ -37,6 +43,12 @@ WORDY_DATE = re.compile(r"\b(\d{1,2})\s+([а-яё]{3,})", re.IGNORECASE)
 
 def _ms(started: float) -> int:
     return int((perf_counter() - started) * 1000)
+
+
+# Кешированный индексированный ретривер: BGE не перезагружается на каждое обращение.
+@lru_cache(maxsize=1)
+def _cached_retriever() -> Retriever:
+    return ReglamentRetriever()
 
 
 def extract_preferred_date(text: str, today: date | None = None) -> str | None:
@@ -111,6 +123,9 @@ def run(
 
     started = perf_counter()
 
+    # .env загружается до чтения переменных — иначе model='unknown' в CLI.
+    load_dotenv()
+
     # Трассировщик создаётся первым: ошибки конфигурации модели и загрузки
     # регламента тоже должны попасть в лог, а не пропасть до его открытия.
     if tracer is None:
@@ -126,7 +141,7 @@ def run(
 
             llm = get_client()
         if retriever is None:
-            retriever = ReglamentRetriever()
+            retriever = _cached_retriever()
 
         action = "classify"
         step = perf_counter()
@@ -195,6 +210,7 @@ def run(
             llm,
             low_confidence=low,
             appointment=appointment,
+            known_ids={c.id for c in getattr(retriever, "clauses", [])} or None,
         )
         tracer.step(
             "draft_ru",
