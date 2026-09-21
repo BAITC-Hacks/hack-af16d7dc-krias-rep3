@@ -15,9 +15,13 @@
 `data/samples.json`, `tests/`.
 
 Не твои (их пишет Claude, не создавай даже заглушками):
-`agent/types.py`, `agent/classify.py`, `agent/retrieve.py`,
-`agent/draft.py`, `agent/pipeline.py`, `data/reglament.md`,
-`SPEC.md`, `README.md`.
+`agent/types.py`, `agent/reglament.py`, `agent/classify.py`,
+`agent/retrieve.py`, `agent/draft.py`, `agent/pipeline.py`,
+`data/reglament.md`, `tests/fakes.py`, `SPEC.md`, `README.md`.
+
+Регламент и его парсер уже готовы: `parse_reglament()` из
+`agent/reglament.py` возвращает `list[Clause]` — можешь опираться на
+него в `samples.json` и тестах.
 
 Все структуры данных импортируй из `agent/types.py` — не объявляй свои
 копии `Clause`, `Appointment` и прочего.
@@ -160,9 +164,11 @@ python main.py --text "..." --json
   через рабочий день, детерминированность талона, обработка занятой и
   нерабочей `preferred_date`.
 - `test_api.py` — `/health` и `/appeal` с подменённым пайплайном.
-- `tests/conftest.py` — фикстура `FakeLLM`, реализующая `LLMClient`
-  и возвращающая заранее заданные ответы. Она понадобится и Claude,
-  поэтому сделай её общей и не привязывай к конкретным промптам.
+- `tests/conftest.py` — только фикстуры-обёртки над подделками из
+  `tests/fakes.py` (этот файл пишет Claude, `FakeLLM` будет там —
+  не дублируй его). Тесты на свои модули кладите в
+  `tests/test_<модуль>.py`, чтобы владение файлами работало и внутри
+  `tests/`.
 
 Тесты не должны ходить в сеть. Ни один.
 
