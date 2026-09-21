@@ -18,7 +18,7 @@ class FakeLLM:
     мог проверить, что именно ушло в модель.
     """
 
-    def __init__(self, responses: list[str] | str) -> None:
+    def __init__(self, responses: list[str | Exception] | str = ()) -> None:
         self.responses = [responses] if isinstance(responses, str) else list(responses)
         self.calls: list[dict[str, Any]] = []
 
@@ -40,7 +40,10 @@ class FakeLLM:
         )
         if not self.responses:
             raise AssertionError("FakeLLM: запросов больше, чем заготовленных ответов")
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response  # так тест проверяет ветку падения модели
+        return response
 
 
 class FakeEmbedder:

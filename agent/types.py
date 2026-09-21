@@ -91,6 +91,10 @@ class LLMClient(Protocol):
 class Tracer(Protocol):
     """Трассировщик шагов. Формат файла — SPEC.md, раздел 3.2."""
 
+    request_id: str
+    """Тот же идентификатор попадает в AgentResult — оркестратор берёт его
+    отсюда, а не генерирует второй раз."""
+
     def step(
         self,
         action: str,
