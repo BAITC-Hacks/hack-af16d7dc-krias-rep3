@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.retrieve import LexicalEmbedder, ReglamentRetriever
+from agent.retrieve import LexicalEmbedder, ReglamentRetriever, build_query
 from agent.types import Clause
 from tests.fakes import FakeEmbedder
 
@@ -51,6 +51,28 @@ def test_лучший_пункт_из_нужного_раздела(retriever):
     """Более строгая проверка: раздел угадан не случайно."""
     hits = sum(retriever.search(t)[0].id.startswith(s) for t, s in CASES)
     assert hits >= len(CASES) - 1, f"первым пунктом угадано только {hits} из {len(CASES)}"
+
+
+def test_смешанное_обращение_находит_раздел_своего_типа(retriever):
+    """Главный случай, из-за которого появился build_query (SPEC 3.4)."""
+    text = "Хочу записаться на приём для получения справки о составе семьи"
+    без_подсказки = {c.id.split(".")[0] for c in retriever.search(text)}
+    с_подсказкой = {
+        c.id.split(".")[0]
+        for c in retriever.search(build_query("запись", text))
+    }
+    assert "3" not in без_подсказки, "тест потерял смысл: раздел находится и так"
+    assert "3" in с_подсказкой
+
+
+def test_build_query_сохраняет_текст_и_добавляет_подсказку():
+    q = build_query("жалоба", "Отказали без объяснений")
+    assert "Отказали без объяснений" in q
+    assert "жалоба" in q
+
+
+def test_build_query_с_неизвестным_типом_возвращает_текст():
+    assert build_query("прочее", "  текст  ") == "текст"
 
 
 def test_пустой_запрос_это_ошибка(retriever):

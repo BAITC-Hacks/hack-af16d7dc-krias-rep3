@@ -12,7 +12,7 @@ from typing import Callable
 
 from agent.classify import classify
 from agent.draft import build_draft, draft_ru, translate_kk
-from agent.retrieve import ReglamentRetriever
+from agent.retrieve import ReglamentRetriever, build_query
 from agent.types import (
     AgentResult,
     Appointment,
@@ -78,11 +78,16 @@ def run(
 
         action = "retrieve"
         step = perf_counter()
-        clauses = retriever.search(text, k=3)
+        # Тип подмешивается в запрос подсказкой из предметной лексики:
+        # смешанное обращение («записаться, чтобы получить справку») иначе
+        # находит только пункты про справки, и черновику нечем обосновать
+        # запись на приём.
+        query = build_query(classification.type, text)
+        clauses = retriever.search(query, k=3)
         low = bool(getattr(retriever, "is_low_confidence", lambda _: False)(clauses))
         tracer.step(
             "retrieve",
-            inp={"text": text, "k": 3},
+            inp={"query": query, "k": 3},
             out={
                 "clauses": [c.id for c in clauses],
                 "scores": [c.score for c in clauses],

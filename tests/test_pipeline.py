@@ -163,6 +163,25 @@ def test_падение_на_переводе_отмечает_нужный_ша
     assert "error" in data["steps"][-1]
 
 
+def test_тип_обращения_подмешивается_в_поисковый_запрос(tmp_path):
+    """Иначе смешанное обращение находит пункты только одного раздела."""
+    retriever = StubRetriever()
+    run(
+        "Хочу записаться, чтобы получить справку",
+        llm=_llm("запись"),
+        retriever=retriever,
+        tracer=_tracer(tmp_path),
+        book=lambda **kw: Appointment(
+            slot_iso="2026-09-24T10:30:00+05:00",
+            office="Есильское",
+            service="приём",
+            ticket="A-001",
+        ),
+    )
+    assert "талон" in retriever.queries[0], "подсказка по типу не добавлена"
+    assert "получить справку" in retriever.queries[0], "текст обращения потерян"
+
+
 def test_пустое_обращение_это_ошибка(tmp_path):
     with pytest.raises(ValueError):
         run("   ", llm=_llm(), retriever=StubRetriever(), tracer=_tracer(tmp_path))
