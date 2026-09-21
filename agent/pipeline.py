@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import os
+import re
+from datetime import date
 from time import perf_counter
 from typing import Callable
 
@@ -24,8 +26,67 @@ from agent.types import (
 Booker = Callable[..., Appointment]
 
 
+MONTHS = {
+    "янв": 1, "фев": 2, "мар": 3, "апр": 4, "ма": 5, "июн": 6,
+    "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
+}
+ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+DOTTED_DATE = re.compile(r"\b(\d{1,2})[.](\d{1,2})(?:[.](\d{4}|\d{2}))?\b")
+WORDY_DATE = re.compile(r"\b(\d{1,2})\s+([а-яё]{3,})", re.IGNORECASE)
+
+
 def _ms(started: float) -> int:
     return int((perf_counter() - started) * 1000)
+
+
+def extract_preferred_date(text: str, today: date | None = None) -> str | None:
+    """Достаёт желаемую дату приёма из обращения в формате YYYY-MM-DD.
+
+    Понимает «2026-09-24», «24.09», «24.09.2026» и «24 сентября».
+    Год без указания берётся текущий, а если дата уже прошла — следующий:
+    «запишите на 3 февраля», сказанное в декабре, означает февраль
+    следующего года.
+    """
+    today = today or date.today()
+
+    match = ISO_DATE.search(text)
+    if match:
+        year, month, day = (int(g) for g in match.groups())
+        return _safe_date(year, month, day)
+
+    match = DOTTED_DATE.search(text)
+    if match:
+        day, month, year_raw = match.group(1), match.group(2), match.group(3)
+        year = int(year_raw) if year_raw else None
+        if year is not None and year < 100:
+            year += 2000
+        return _with_year(int(day), int(month), year, today)
+
+    match = WORDY_DATE.search(text)
+    if match:
+        day, word = int(match.group(1)), match.group(2).lower()
+        for prefix, month in MONTHS.items():
+            if word.startswith(prefix):
+                return _with_year(day, month, None, today)
+    return None
+
+
+def _safe_date(year: int, month: int, day: int) -> str | None:
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _with_year(day: int, month: int, year: int | None, today: date) -> str | None:
+    if year is not None:
+        return _safe_date(year, month, day)
+    guess = _safe_date(today.year, month, day)
+    if guess is None:
+        return None
+    return guess if date.fromisoformat(guess) >= today else _safe_date(
+        today.year + 1, month, day
+    )
 
 
 def run(
@@ -50,19 +111,24 @@ def run(
 
     started = perf_counter()
 
-    if llm is None:
-        from agent.llm import get_client
-
-        llm = get_client()
-    if retriever is None:
-        retriever = ReglamentRetriever()
+    # Трассировщик создаётся первым: ошибки конфигурации модели и загрузки
+    # регламента тоже должны попасть в лог, а не пропасть до его открытия.
     if tracer is None:
         from agent.trace import new_tracer
 
         tracer = new_tracer(text, os.getenv("LLM_MODEL", "unknown"))
 
-    action = "classify"
+    action = "setup"
     try:
+        step = perf_counter()
+        if llm is None:
+            from agent.llm import get_client
+
+            llm = get_client()
+        if retriever is None:
+            retriever = ReglamentRetriever()
+
+        action = "classify"
         step = perf_counter()
         classification = classify(text, llm)
         tracer.step(
@@ -104,10 +170,14 @@ def run(
 
                 book = book_appointment
             step = perf_counter()
-            appointment = book(service="запись на приём")
+            args: dict[str, str] = {"service": "запись на приём"}
+            preferred = extract_preferred_date(text)
+            if preferred:
+                args["preferred_date"] = preferred
+            appointment = book(**args)
             tracer.tool_call(
                 "book_appointment",
-                args={"service": "запись на приём"},
+                args=args,
                 result={
                     "slot_iso": appointment.slot_iso,
                     "office": appointment.office,

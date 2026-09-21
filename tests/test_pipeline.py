@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 
-from agent.pipeline import run
+from agent.pipeline import extract_preferred_date, run
 from agent.trace import JsonTracer
 from agent.types import Appointment, Clause, LLMError
 from tests.fakes import FakeLLM
@@ -185,3 +186,69 @@ def test_тип_обращения_подмешивается_в_поисков�
 def test_пустое_обращение_это_ошибка(tmp_path):
     with pytest.raises(ValueError):
         run("   ", llm=_llm(), retriever=StubRetriever(), tracer=_tracer(tmp_path))
+
+
+def test_дата_из_обращения_передаётся_в_бронирование(tmp_path):
+    args: list[dict] = []
+    run(
+        "Хочу записаться на приём 24.09.2026",
+        llm=_llm("запись"),
+        retriever=StubRetriever(),
+        tracer=_tracer(tmp_path),
+        book=lambda **kw: (
+            args.append(kw)
+            or Appointment(
+                slot_iso="2026-09-24T10:30:00+05:00",
+                office="Есильское",
+                service="приём",
+                ticket="A-001",
+            )
+        ),
+    )
+    assert args[0]["preferred_date"] == "2026-09-24"
+
+
+def test_без_даты_в_обращении_параметр_не_передаётся(tmp_path):
+    args: list[dict] = []
+    run(
+        "Хочу записаться на приём",
+        llm=_llm("запись"),
+        retriever=StubRetriever(),
+        tracer=_tracer(tmp_path),
+        book=lambda **kw: (
+            args.append(kw)
+            or Appointment(
+                slot_iso="2026-09-24T10:30:00+05:00",
+                office="Есильское",
+                service="приём",
+                ticket="A-001",
+            )
+        ),
+    )
+    assert "preferred_date" not in args[0]
+
+
+def test_ошибка_загрузки_зависимостей_попадает_в_лог(tmp_path):
+    """Иначе сбой конфигурации не оставляет следа в трассировке."""
+
+    class BrokenRetriever:
+        def search(self, query, k=3):
+            raise RuntimeError("индекс не собрался")
+
+    tracer = _tracer(tmp_path)
+    with pytest.raises(RuntimeError):
+        run("Прошу справку", llm=_llm(), retriever=BrokenRetriever(), tracer=tracer)
+    data = json.loads(open(tracer.log_path, encoding="utf-8").read())
+    assert data["steps"][-1]["action"] == "retrieve"
+    assert "индекс не собрался" in data["steps"][-1]["error"]
+
+
+def test_извлечение_даты_понимает_форматы():
+    today = date(2026, 9, 21)
+    assert extract_preferred_date("приём 2026-09-24", today) == "2026-09-24"
+    assert extract_preferred_date("запишите на 24.09.2026", today) == "2026-09-24"
+    assert extract_preferred_date("запишите на 24.09", today) == "2026-09-24"
+    assert extract_preferred_date("хочу 24 сентября", today) == "2026-09-24"
+    assert extract_preferred_date("можно 3 февраля?", today) == "2027-02-03"
+    assert extract_preferred_date("хочу на приём", today) is None
+    assert extract_preferred_date("31.02.2026", today) is None
